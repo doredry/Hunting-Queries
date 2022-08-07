@@ -1,0 +1,18 @@
+implementation of some hunting ideas from this blog: https://medium.com/threatpunter/okta-threat-hunting-tips-62dc0013d526
+
+// Find risky IP addresses that reported by both Okta risk score and AAD risk score
+let suspiciousOktaIps = 
+CloudAppEvents
+| where Timestamp > ago(1d)
+| where Application == "Okta"
+| where RawEventData has "logOnlySecurityData"
+| project logOnSecurityData = tostring(parse_json(RawEventData).debugContext.debugData.logOnlySecurityData), IPAddress
+| take 50
+| parse logOnSecurityData with * '"level":"' riskLevel '"' * //json is  bit messed up so I had to parse it
+| where riskLevel in ("HIGH", "MEDIUM")
+| distinct IPAddress;
+AADSignInEventsBeta
+| where isnotempty(toscalar(suspiciousOktaIps))
+| where Timestamp > ago(1d)
+| where RiskLevelAggregated  + RiskLevelDuringSignIn >= 100 //check if risk level is HIGH, change to 50 for Medium
+| where IPAddress in (suspiciousOktaIps)
