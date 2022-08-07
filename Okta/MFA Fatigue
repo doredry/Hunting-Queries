@@ -1,0 +1,17 @@
+implementation of some hunting ideas from this blog: https://medium.com/threatpunter/okta-threat-hunting-tips-62dc0013d526
+
+//MFA Fatigue - at least 2 failed MFA attempts followed by succesfful attempt
+CloudAppEvents
+| where Timestamp > ago(1d)
+| where Application == "Okta"
+| where ActionType startswith "core.user.factor.attempt_"
+| where RawEventData has_all ("OKTA_VERIFY_PUSH", "user.authentication.auth_via_mfa")
+| project Timestamp, AccountObjectId, ActionType
+| order  by Timestamp asc
+| scan  with_match_id=session_id with
+(
+    step s1: ActionType == "core.user.factor.attempt_fail";
+    step s2: ActionType == "core.user.factor.attempt_fail" and Timestamp - s1.Timestamp <= 20m;
+    step s3: ActionType == "core.user.factor.attempt_success" and Timestamp - s2.Timestamp <= 20m;
+)
+| distinct AccountObjectId
