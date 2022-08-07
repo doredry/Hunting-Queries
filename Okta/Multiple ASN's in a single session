@@ -1,0 +1,15 @@
+implementation of some hunting ideas from this blog: https://medium.com/threatpunter/okta-threat-hunting-tips-62dc0013d526
+
+//Multiple different ASN's in a single session
+let threshold = 3;
+CloudAppEvents
+| where Timestamp > ago(1d)
+| where Application == "Okta"
+| where RawEventData has_all("asNumber" ,"externalSessionId")
+| project SID = tostring(parse_json(RawEventData).authenticationContext.externalSessionId),
+          ASN = tostring(parse_json(RawEventData).securityContext.asNumber),
+          AccountObjectId
+| where SID != "unknown"
+| summarize numOfASNs = dcount(ASN) by SID, AccountObjectId
+| where numOfASNs > threshold
+
