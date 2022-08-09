@@ -1,0 +1,28 @@
+Sentinel query to find malicious inbox rule created by EWS api (which usually aren't cosnidered in many detections / hunting queries)
+
+let EWSRules = materialize (
+OfficeActivity
+| where TimeGenerated > ago(30d)
+| where Operation == "UpdateInboxRules"
+| project OperationProperties, id = SourceRecordId
+| mv-expand OperationProperties);
+//Create New Rule
+let ValidateCreate = toscalar(
+EWSRules
+| summarize make_set_if(id, OperationProperties["Name"] == "RuleOperation" and 
+                            OperationProperties["Value"] =="Create"));
+//Validate relevant rule actions
+let ValidateActions = toscalar (
+EWSRules
+| summarize make_set_if(id, OperationProperties["Name"] == "Actions" and 
+                          ((OperationProperties["Value"] has "MarkAsReadAction" and 
+                            OperationProperties["Value"] has_any ("DeleteAction", "MoveToFolderAction")) or 
+                           (OperationProperties["Value"] == "PermanentDeleteAction"))));
+let SuspiciousRulesIds = toscalar(set_intersect(ValidateActions, ValidateCreate));
+//Extract relevant events
+OfficeActivity
+| where TimeGenerated > ago(30d)
+| where Operation == "UpdateInboxRules"
+| where SourceRecordId in (SuspiciousRulesIds)
+| where tostring(OperationProperties) !has "Conditions" //no filters are applied
+
